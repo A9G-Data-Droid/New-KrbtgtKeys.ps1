@@ -13,6 +13,16 @@
 ### --> If Applicable Describe What Should Be/Work Different And Explain Why/How.
 ### --> Please Add Screendumps.
 ###
+Param (
+	[Parameter(Mandatory=$false)]
+	[Int]$modeOfOperationNr = 0,
+	[String]$targetedADforestFQDN = $null,
+	[String]$targetedADdomainFQDN = $null,
+	[Int]$targetKrbTgtAccountNr = 0,
+	$targetRODCFQDNList = $null,
+	[Bool]$silent = $false
+)
+
 $ver
 <#
 .SYNOPSIS
@@ -117,6 +127,9 @@ $ver
 		for DES, RC4, AES128, AES256!
 
 .RELEASE NOTES
+	v2.6, 2020-08-27, Adam Kauffman:
+		- Add all command line parameters required to run silent with known modes and values
+
 	v2.5, 2020-02-17, Jorge de Almeida Pinto [MVP-EMS]:
 		- To improve performance, for some actions the nearest RWDC is discovered instead of using the RWDC with the PDC FSMO Role
 		
@@ -1172,6 +1185,237 @@ Function deleteTestKrbTgtADAccount($targetedADdomainRWDC, $krbTgtSamAccountName)
 	}
 }
 
+### Providing Information About What The Script Is Capable Of And How The Script Works
+Function ShowHelp {
+	Logging ""
+	Logging "Do you want to read information about the script, its functions, its behavior and the impact? [YES | NO]: " "ACTION-NO-NEW-LINE"
+	$yesOrNo = $null
+	$yesOrNo = Read-Host
+	If ($yesOrNo.ToUpper() -ne "NO") {
+		$yesOrNo = "YES"
+	}
+	Logging ""
+	Logging "  --> Chosen: $yesOrNo" "REMARK"
+	Logging ""
+	If ($yesOrNo.ToUpper() -ne "NO") {
+		Logging "------------------------------------------------------------------------------------------------------------------------------------------------------" "HEADER"
+		Logging "INFORMATION ABOUT THE SCRIPT, ITS FUNCTIONS AND BEHAVIOR, AND IMPACT TO THE ENVIRONMENT - PLEASE READ CAREFULLY..." "HEADER"
+		Logging ""
+		Logging "-----" "REMARK"
+		Logging "This PoSH script provides the following functions:" "REMARK"
+		Logging "-----" "REMARK"
+		Logging " - Single Password Reset for the KrbTgt account in use by RWDCs in a specific AD domain, using either TEST or PROD KrbTgt accounts" "REMARK"
+		Logging " - Single Password Reset for the KrbTgt account in use by an individual RODC in a specific AD domain, using either TEST or PROD KrbTgt accounts" "REMARK"
+		Logging "     * A single RODC in a specific AD domain" "REMARK"
+		Logging "     * A specific list of in a specific AD domain" "REMARK"
+		Logging "     * All RODCs in a specific AD domain" "REMARK"
+		Logging " - Resetting the password/keys of the KrbTgt Account can be done for multiple reasons such as for example:" "REMARK"
+		Logging "     * From a security perspective as mentioned in:" "REMARK"
+		Logging "       https://cloudblogs.microsoft.com/microsoftsecure/2015/02/11/krbtgt-account-password-reset-scripts-now-available-for-customers/" "REMARK"
+		Logging "     * From an AD recovery perspective as mentioned in:" "REMARK"
+		Logging "       https://docs.microsoft.com/en-us/windows-server/identity/ad-ds/manage/ad-forest-recovery-resetting-the-krbtgt-password" "REMARK"
+		Logging " - For all scenarios, an informational mode, which is mode 1 with no changes" "REMARK"
+		Logging " - For all scenarios, a simulation mode, which is mode 2 where replication is tested through the replication of a temporary canary" "REMARK"
+		Logging "     object that is created and deleted afterwards" "REMARK"
+		Logging " - For all scenarios, a simulation mode, which is mode 3 where the password reset of the chosen TEST KrbTgt account is actually executed" "REMARK"
+		Logging "     and replication of it is monitored through the environment for its duration" "REMARK"
+		Logging " - For all scenarios, a real reset mode, which is mode 4 where the password reset of the chosen PROD KrbTgt account is actually executed" "REMARK"
+		Logging "     and replication of it is monitored through the environment for its duration" "REMARK"
+		Logging " - The creation of Test KrbTgt Accounts" "REMARK"
+		Logging " - The cleanup of previously created Test KrbTgt Accounts" "REMARK"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging "-----" "REMARK"
+		Logging "This PoSH script has the following behavior:" "REMARK"
+		Logging "-----" "REMARK"
+		Logging ""
+		Logging " - Mode 1 is INFORMATIONAL MODE..." "REMARK-IMPORTANT"
+		Logging "     * Safe to run at any time as there are not changes in any way!" "REMARK-IMPORTANT"
+		Logging "     * Analyzes the environment and check for issues that may impact mode 2, 3 or 4!" "REMARK-IMPORTANT"
+		Logging "     * For the targeted AD domain, it always retrieves all RWDCs, and all RODCs if applicable." "REMARK-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - Mode 2 is SIMULATION MODE USING A TEMPORARY CANARY OBJECT..." "REMARK-MORE-IMPORTANT"
+		Logging "     * Also executes everything from mode 1!" "REMARK-MORE-IMPORTANT"
+		Logging "     * Creates the temporary canary object and, depending on the scope, it will check if it exists in the AD database of the remote DC(s)" "REMARK-MORE-IMPORTANT"
+		Logging "       (RWDC/RODC)." "REMARK-MORE-IMPORTANT"
+		Logging "     * When simulating the KrbTgt account for RWDCs, the creation of the object is against the RWDC with the PDC Emulator FSMO followed" "REMARK-MORE-IMPORTANT"
+		Logging "       by the 'replicate single object' operation against every available/reachable RWDC. This is a way to estimate the total replication" "REMARK-MORE-IMPORTANT"
+		Logging "       time for mode 4." "REMARK-MORE-IMPORTANT"
+		Logging "     * When simulating the KrbTgt account for RODCs, the creation of the object is against the RWDC the RODC is replicating from if" "REMARK-MORE-IMPORTANT"
+		Logging "       available. If not available the creation is against the RWDC with the PDC Emulator FSMO. Either way it is followed by the 'replicate" "REMARK-MORE-IMPORTANT"
+		Logging "       single object' operation against the RODC. This is a way to estimate the total replication time for mode 4." "REMARK-MORE-IMPORTANT"
+		Logging "     * If a remote DC (RWDC/RODC) is not available or cannot be reached, there will not be a check against its AD database to determine if" "REMARK-MORE-IMPORTANT"
+		Logging "       the change made reached it or not." "REMARK-MORE-IMPORTANT"
+		Logging "     * When performing the 'replicate single object' operation, it will always be for the full object, no matter if the remote DC is an RWDC" "REMARK-MORE-IMPORTANT"
+		Logging "       or an RODC" "REMARK-MORE-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - Mode 3 is SIMULATION MODE USING TEST/BOGUS KRBTGT ACCOUNTS..." "REMARK-MORE-IMPORTANT"
+		Logging "     * Also executes everything from mode 1!" "REMARK-MORE-IMPORTANT"
+		Logging "     * Instead of using PROD/REAL KrbTgt Account(s), it uses pre-created TEST/BOGUS KrbTgt Accounts(s) for the password reset!" "REMARK-MORE-IMPORTANT"
+		Logging "       * For RWDCs it uses the TEST/BOGUS KrbTgt account 'krbtgt_TEST' (All RWDCs) (= Created when running mode 8)" "REMARK-MORE-IMPORTANT"
+		Logging "       * For RODCs it uses the TEST/BOGUS KrbTgt account 'krbtgt_<Numeric Value>_TEST' (RODC Specific) (= Created when running mode 8)" "REMARK-MORE-IMPORTANT"
+		Logging "     * Resets the password of the TEST/BOGUS KrbTgt Accounts(s) and, depending on the scope, it will check if the Password Last Set value" "REMARK-MORE-IMPORTANT"
+		Logging "       in the AD database of the remote DC(s) (RWDC/RODC) matches the Password Last Set value in the AD database of the source originating" "REMARK-MORE-IMPORTANT"
+		Logging "       RWDC." "REMARK-MORE-IMPORTANT"
+		Logging "     * When simulating the KrbTgt account for RWDCs, the password reset is done for the TEST/BOGUS KrbTgt Accounts(s) against the RWDC with" "REMARK-MORE-IMPORTANT"
+		Logging "       the PDC Emulator FSMO followed by the 'replicate single object' operation against every available/reachable RWDC. No RODCs are involved" "REMARK-MORE-IMPORTANT"
+		Logging "       as those do not use the KrbTgt account in use by the RWDCs and also do not store/cache its password. This is a way to estimate the" "REMARK-MORE-IMPORTANT"
+		Logging "       total replication time for mode 4." "REMARK-MORE-IMPORTANT"
+		Logging "     * When simulating the KrbTgt account for RODCs, the password reset is done for the TEST/BOGUS KrbTgt Accounts(s) against the RWDC the" "REMARK-MORE-IMPORTANT"
+		Logging "       RODC is replicating from if available/reachable. If not available the password reset is against the RWDC with the PDC Emulator FSMO." "REMARK-MORE-IMPORTANT"
+		Logging "       Either way it is followed by the 'replicate single object' operation against the RODC that uses that KrbTgt account. Only the RODC" "REMARK-MORE-IMPORTANT"
+		Logging "       that uses the specific KrbTgt account is checked against to see if the change has reached it, but only if the RODC is available/reachable." "REMARK-MORE-IMPORTANT"
+		Logging "       This is a way to estimate the total replication time for mode 4." "REMARK-MORE-IMPORTANT"
+		Logging "     * If a remote DC (RWDC/RODC) is not available or cannot be reached, there will not be a check against its AD database to determine if" "REMARK-MORE-IMPORTANT"
+		Logging "       the change made reached it or not." "REMARK-MORE-IMPORTANT"
+		Logging "     * When performing the 'replicate single object' operation, it will always be for the full object if the target DC is an RWDC. If the" "REMARK-MORE-IMPORTANT"
+		Logging "       target DC is an RODC, then it will be for the partial object (secrets only)." "REMARK-MORE-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - Mode 4 is REAL RESET MODE USING PROD/REAL KRBTGT ACCOUNTS..." "REMARK-MOST-IMPORTANT"
+		Logging "     * Also executes everything from mode 1!" "REMARK-MOST-IMPORTANT"
+		Logging "     * Now it does use the PROD/REAL KrbTgt Accounts(s) for the password reset!" "REMARK-MOST-IMPORTANT"
+		Logging "       * For RWDCs it uses the PROD/REAL KrbTgt account 'krbtgt' (All RWDCs)" "REMARK-MOST-IMPORTANT"
+		Logging "       * For RODCs it uses the PROD/REAL KrbTgt account 'krbtgt_<Numeric Value>' (RODC Specific)" "REMARK-MOST-IMPORTANT"
+		Logging "     * Resets the password of the PROD/REAL KrbTgt Accounts(s) and, depending on the scope, it will check if the Password Last Set value" "REMARK-MOST-IMPORTANT"
+		Logging "       in the AD database of the remote DC(s) (RWDC/RODC) matches the Password Last Set value in the AD database of the source originating" "REMARK-MOST-IMPORTANT"
+		Logging "       RWDC." "REMARK-MOST-IMPORTANT"
+		Logging "     * When simulating the KrbTgt account for RWDCs, the password reset is done for the PROD/REAL KrbTgt Accounts(s) against the RWDC with" "REMARK-MOST-IMPORTANT"
+		Logging "       the PDC Emulator FSMO followed by the 'replicate single object' operation against every available/reachable RWDC. No RODCs are involved" "REMARK-MOST-IMPORTANT"
+		Logging "       as those do not use the KrbTgt account in use by the RWDCs and also do not store/cache its password. Once the replication is" "REMARK-MOST-IMPORTANT"
+		Logging "       complete, the total impact time will be displayed." "REMARK-MOST-IMPORTANT"
+		Logging "     * When simulating the KrbTgt account for RODCs, the password reset is done for the PROD/REAL KrbTgt Accounts(s) against the RWDC the" "REMARK-MOST-IMPORTANT"
+		Logging "       RODC is replicating from if available/reachable. If not available the password reset is against the RWDC with the PDC Emulator FSMO." "REMARK-MOST-IMPORTANT"
+		Logging "       Either way it is followed by the 'replicate single object' operation against the RODC that uses that KrbTgt account. Only the RODC" "REMARK-MOST-IMPORTANT"
+		Logging "       that uses the specific KrbTgt account is checked against to see if the change has reached it, but only if the RODC is available/reachable." "REMARK-MOST-IMPORTANT"
+		Logging "       Once the replication is complete, the total impact time will be displayed." "REMARK-MOST-IMPORTANT"
+		Logging "     * If a remote DC (RWDC/RODC) is not available or cannot be reached, there will not be a check against its AD database to determine if" "REMARK-MOST-IMPORTANT"
+		Logging "       the change made reached it or not." "REMARK-MOST-IMPORTANT"
+		Logging "     * When performing the 'replicate single object' operation, it will always be for the full object if the target DC is an RWDC. If the" "REMARK-MOST-IMPORTANT"
+		Logging "       target DC is an RODC, then it will be for the partial object (secrets only)." "REMARK-MOST-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - Mode 8 is CREATE TEST KRBTGT ACCOUNTS MODE..." "REMARK-IMPORTANT"
+		Logging "     * Creates so called TEST/BOGUS KrbTgt Account(s) to simulate the password reset with." "REMARK-IMPORTANT"
+		Logging "     * Has no impact on the PROD/REAL KrbTgt Account(s)." "REMARK-IMPORTANT"
+		Logging "     * For RWDCs it creates (in disabled state!) the TEST/BOGUS KrbTgt account 'krbtgt_TEST' and adds it to the AD group 'Denied RODC" "REMARK-IMPORTANT"
+		Logging "       Password Replication Group'." "REMARK-IMPORTANT"
+		Logging "     * For RODCs, if any in the AD domain, it creates (in disabled state!) the TEST/BOGUS KrbTgt account 'krbtgt_<Numeric Value>_TEST' and" "REMARK-IMPORTANT"
+		Logging "       adds it to the AD group 'Allowed RODC Password Replication Group'. To determine the specific KrbTgt account in use by an RODC, the" "REMARK-IMPORTANT"
+		Logging "       script reads the attribute 'msDS-KrbTgtLink' on the RODC computer account." "REMARK-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - Mode 9 is CLEANUP TEST KRBTGT ACCOUNTS MODE..." "REMARK-IMPORTANT"
+		Logging "     * Cleanup (delete) the so called TEST/BOGUS KrbTgt Account(s) that were used to simulate the password reset with." "REMARK-IMPORTANT"
+		Logging "     * For RWDCs it deletes the TEST/BOGUS KrbTgt account 'krbtgt_TEST' if it exists." "REMARK-IMPORTANT"
+		Logging "     * For RODCs, if any in the AD domain, it deletes the TEST/BOGUS KrbTgt account 'krbtgt_<Numeric Value>_TEST' if it exists. To determine" "REMARK-IMPORTANT"
+		Logging "       the specific KrbTgt account in use by an RODC, the script reads the attribute 'msDS-KrbTgtLink' on the RODC computer account." "REMARK-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - ADDITIONAL INFO - BEHAVIOR..." "REMARK-IMPORTANT"
+		Logging "     * If the operating system attribute of an RODC computer account does not have a value, it is determined to be unknown (not a real RODC)," "REMARK-IMPORTANT"
+		Logging "       and therefore something else. It could for example be a Riverbed appliance in 'RODC mode'." "REMARK-IMPORTANT"
+		Logging "     * The only DC that knows what the real replication partner is of an RODC, is the RODC itself. Only the RODC manages a connection object" "REMARK-IMPORTANT"
+		Logging "       (CO) that only exists in the AD database of the RODC and does not replicate out to other DCs as RODCs do not support outbound replication." "REMARK-IMPORTANT"
+		Logging "       Therefore, assuming the RODC is available, the CO is looked up in the RODC AD database and from that CO, the 'source' server is" "REMARK-IMPORTANT"
+		Logging "       determined. In case the RODC is not available or its 'source' server is not available, the RWDC with the PDC FSMO is used to reset" "REMARK-IMPORTANT"
+		Logging "       the password of the krbtgt account in use by that RODC. If the RODC is available a check will be done against its database, and if" "REMARK-IMPORTANT"
+		Logging "       not available the check is skipped." "REMARK-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging " - ADDITIONAL INFO - OBSERVED IMPACT..." "REMARK-IMPORTANT"
+		Logging "     * Within an AD domain, all RWDCs use the account 'krbtgt' to encrypt/sign Kerberos tickets trusted by all RWDCs" "REMARK-IMPORTANT"
+		Logging "     * Within an AD domain, every RODC uses its own 'krbtgt_<Numeric Value>' account to encrypt/sign Kerberos tickets trusted by only that RODC" "REMARK-IMPORTANT"
+		Logging "       and that account is specified in the attribute 'msDS-KrbTgtLink' on the RODC computer account." "REMARK-IMPORTANT"
+		Logging "     * RODCs are cryptographically isolated from other RODCs and the RWDCs, whether these are in the same AD site or not. Any Kerberos TGT/Service" "REMARK-IMPORTANT"
+		Logging "       tickets issued by an RODC are only valid against that RODC and any resource that has a secure channel with that RODC. That's why when an" "REMARK-IMPORTANT"
+		Logging "       RODC is compromised the scope of impact is only for that RODC and any resource using it, and not the complete AD domain." "REMARK-IMPORTANT"
+		Logging "     * Kerberos PAC validation failures: Until the new KrbTgt account password is replicated to all DCs in the domain using that KrbTgt account," "REMARK-IMPORTANT"
+		Logging "       applications which attempt KDC PAC validation may experience KDC PAC validation failures. This is possible  when a client in one AD site" "REMARK-IMPORTANT"
+		Logging "       is accessing an application leveraging the Kerberos Authentication protocol that is in a different AD site. If that application is not a" "REMARK-IMPORTANT"
+		Logging "       trusted part of the operating system, it may attempt to validate the PAC of the client's Kerberos Service Ticket against the KDC (DC) in" "REMARK-IMPORTANT"
+		Logging "       its AD site. If the DC in its site does not yet have the new KrbTgt account password, this KDC PAC validation will fail. This will likely" "REMARK-IMPORTANT"
+		Logging "       manifest itself to the client as authentication errors for that application. Once all DCs using a specific KrbTgt account have the new" "REMARK-IMPORTANT"
+		Logging "       password some affected clients may recover gracefully and resume functioning normally. If not, rebooting the affected client(s) will" "REMARK-IMPORTANT"
+		Logging "       resolve the issue. This issue may not occur if the replication of the new KrbTgt account password is timely and successful and no" "REMARK-IMPORTANT"
+		Logging "       applications attempt KDC PAC validation against an out of sync DC during that time." "REMARK-IMPORTANT"
+		Logging "     * Kerberos TGS request failures: Until the new KrbTgt account password is replicated to all DCs in the domain that use that KrbTgt account," "REMARK-IMPORTANT"
+		Logging "       a client may experience Kerberos authentication failures. This is when a client in one AD site has obtained a Kerberos Ticket Granting" "REMARK-IMPORTANT"
+		Logging "       Ticket (TGT) from an RWDC that has the new KrbTgt account password, but then subsequently attempts to obtain a Kerberos Service Ticket" "REMARK-IMPORTANT"
+		Logging "       via a TGS request against an RWDC in a different AD site. If that RWDC does not also have the new KrbTgt account password, it will not" "REMARK-IMPORTANT"
+		Logging "       be able to decrypt the client''s TGT, which will result in a TGS request failure.  This will manifest itself to the client as authenticate" "REMARK-IMPORTANT"
+		Logging "       errors. However, it should be noted that this impact is very unlikely, because it is very unlikely that a client will attempt to obtain a" "REMARK-IMPORTANT"
+		Logging "       service ticket from a different RWDC than the one from which their TGT was obtained, especially during the relatively short impact" "REMARK-IMPORTANT"
+		Logging "       duration of Mode 4." "REMARK-IMPORTANT"
+		Logging ""
+		Logging ""
+		Logging "First, read the info above, then..." "ACTION"
+		Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
+		Logging ""
+		Logging ""
+		Logging "    >>> It is highly recommended to use the following order of execution: <<<" "REMARK-MORE-IMPORTANT"
+		Logging "     - Mode 1 - Informational Mode (No Changes At All)" "REMARK-MORE-IMPORTANT"
+		Logging "     - Mode 8 - Create TEST KrbTgt Accounts" "REMARK-MORE-IMPORTANT"
+		Logging "     - Mode 2 - Simulation Mode (Temporary Canary Object Created, No Password Reset!)" "REMARK-MORE-IMPORTANT"
+		Logging "     - Mode 3 - Simulation Mode - Use KrbTgt TEST/BOGUS Accounts (Password Will Be Reset Once!)" "REMARK-MORE-IMPORTANT"
+		Logging "     - Mode 4 - Real Reset Mode - Use KrbTgt PROD/REAL Accounts (Password Will Be Reset Once!)" "REMARK-MORE-IMPORTANT"
+		Logging "     - Mode 9 - Cleanup TEST KrbTgt Accounts (Could be skipped to reuse accounts the next time!)" "REMARK-MORE-IMPORTANT"
+		Logging ""
+	}
+}
+
 ### Version Of Script
 $version = "v2.5, 2020-02-17"
 
@@ -1233,233 +1477,8 @@ Logging "                                          *                            
 Logging "                                          **********************************************************" "MAINHEADER"
 Logging ""
 
-### Providing Information About What The Script Is Capable Of And How The Script Works
-Logging ""
-Logging "Do you want to read information about the script, its functions, its behavior and the impact? [YES | NO]: " "ACTION-NO-NEW-LINE"
-$yesOrNo = $null
-$yesOrNo = Read-Host
-If ($yesOrNo.ToUpper() -ne "NO") {
-	$yesOrNo = "YES"
-}
-Logging ""
-Logging "  --> Chosen: $yesOrNo" "REMARK"
-Logging ""
-If ($yesOrNo.ToUpper() -ne "NO") {
-	Logging "------------------------------------------------------------------------------------------------------------------------------------------------------" "HEADER"
-	Logging "INFORMATION ABOUT THE SCRIPT, ITS FUNCTIONS AND BEHAVIOR, AND IMPACT TO THE ENVIRONMENT - PLEASE READ CAREFULLY..." "HEADER"
-	Logging ""
-	Logging "-----" "REMARK"
-	Logging "This PoSH script provides the following functions:" "REMARK"
-	Logging "-----" "REMARK"
-	Logging " - Single Password Reset for the KrbTgt account in use by RWDCs in a specific AD domain, using either TEST or PROD KrbTgt accounts" "REMARK"
-	Logging " - Single Password Reset for the KrbTgt account in use by an individual RODC in a specific AD domain, using either TEST or PROD KrbTgt accounts" "REMARK"
-	Logging "     * A single RODC in a specific AD domain" "REMARK"
-	Logging "     * A specific list of in a specific AD domain" "REMARK"
-	Logging "     * All RODCs in a specific AD domain" "REMARK"
-	Logging " - Resetting the password/keys of the KrbTgt Account can be done for multiple reasons such as for example:" "REMARK"
-	Logging "     * From a security perspective as mentioned in:" "REMARK"
-	Logging "       https://cloudblogs.microsoft.com/microsoftsecure/2015/02/11/krbtgt-account-password-reset-scripts-now-available-for-customers/" "REMARK"
-	Logging "     * From an AD recovery perspective as mentioned in:" "REMARK"
-	Logging "       https://docs.microsoft.com/en-us/windows-server/identity/ad-ds/manage/ad-forest-recovery-resetting-the-krbtgt-password" "REMARK"
-	Logging " - For all scenarios, an informational mode, which is mode 1 with no changes" "REMARK"
-	Logging " - For all scenarios, a simulation mode, which is mode 2 where replication is tested through the replication of a temporary canary" "REMARK"
-	Logging "     object that is created and deleted afterwards" "REMARK"
-	Logging " - For all scenarios, a simulation mode, which is mode 3 where the password reset of the chosen TEST KrbTgt account is actually executed" "REMARK"
-	Logging "     and replication of it is monitored through the environment for its duration" "REMARK"
-	Logging " - For all scenarios, a real reset mode, which is mode 4 where the password reset of the chosen PROD KrbTgt account is actually executed" "REMARK"
-	Logging "     and replication of it is monitored through the environment for its duration" "REMARK"
-	Logging " - The creation of Test KrbTgt Accounts" "REMARK"
-	Logging " - The cleanup of previously created Test KrbTgt Accounts" "REMARK"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging "-----" "REMARK"
-	Logging "This PoSH script has the following behavior:" "REMARK"
-	Logging "-----" "REMARK"
-	Logging ""
-	Logging " - Mode 1 is INFORMATIONAL MODE..." "REMARK-IMPORTANT"
-	Logging "     * Safe to run at any time as there are not changes in any way!" "REMARK-IMPORTANT"
-	Logging "     * Analyzes the environment and check for issues that may impact mode 2, 3 or 4!" "REMARK-IMPORTANT"
-	Logging "     * For the targeted AD domain, it always retrieves all RWDCs, and all RODCs if applicable." "REMARK-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - Mode 2 is SIMULATION MODE USING A TEMPORARY CANARY OBJECT..." "REMARK-MORE-IMPORTANT"
-	Logging "     * Also executes everything from mode 1!" "REMARK-MORE-IMPORTANT"
-	Logging "     * Creates the temporary canary object and, depending on the scope, it will check if it exists in the AD database of the remote DC(s)" "REMARK-MORE-IMPORTANT"
-	Logging "       (RWDC/RODC)." "REMARK-MORE-IMPORTANT"
-	Logging "     * When simulating the KrbTgt account for RWDCs, the creation of the object is against the RWDC with the PDC Emulator FSMO followed" "REMARK-MORE-IMPORTANT"
-	Logging "       by the 'replicate single object' operation against every available/reachable RWDC. This is a way to estimate the total replication" "REMARK-MORE-IMPORTANT"
-	Logging "       time for mode 4." "REMARK-MORE-IMPORTANT"
-	Logging "     * When simulating the KrbTgt account for RODCs, the creation of the object is against the RWDC the RODC is replicating from if" "REMARK-MORE-IMPORTANT"
-	Logging "       available. If not available the creation is against the RWDC with the PDC Emulator FSMO. Either way it is followed by the 'replicate" "REMARK-MORE-IMPORTANT"
-	Logging "       single object' operation against the RODC. This is a way to estimate the total replication time for mode 4." "REMARK-MORE-IMPORTANT"
-	Logging "     * If a remote DC (RWDC/RODC) is not available or cannot be reached, there will not be a check against its AD database to determine if" "REMARK-MORE-IMPORTANT"
-	Logging "       the change made reached it or not." "REMARK-MORE-IMPORTANT"
-	Logging "     * When performing the 'replicate single object' operation, it will always be for the full object, no matter if the remote DC is an RWDC" "REMARK-MORE-IMPORTANT"
-	Logging "       or an RODC" "REMARK-MORE-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - Mode 3 is SIMULATION MODE USING TEST/BOGUS KRBTGT ACCOUNTS..." "REMARK-MORE-IMPORTANT"
-	Logging "     * Also executes everything from mode 1!" "REMARK-MORE-IMPORTANT"
-	Logging "     * Instead of using PROD/REAL KrbTgt Account(s), it uses pre-created TEST/BOGUS KrbTgt Accounts(s) for the password reset!" "REMARK-MORE-IMPORTANT"
-	Logging "       * For RWDCs it uses the TEST/BOGUS KrbTgt account 'krbtgt_TEST' (All RWDCs) (= Created when running mode 8)" "REMARK-MORE-IMPORTANT"
-	Logging "       * For RODCs it uses the TEST/BOGUS KrbTgt account 'krbtgt_<Numeric Value>_TEST' (RODC Specific) (= Created when running mode 8)" "REMARK-MORE-IMPORTANT"
-	Logging "     * Resets the password of the TEST/BOGUS KrbTgt Accounts(s) and, depending on the scope, it will check if the Password Last Set value" "REMARK-MORE-IMPORTANT"
-	Logging "       in the AD database of the remote DC(s) (RWDC/RODC) matches the Password Last Set value in the AD database of the source originating" "REMARK-MORE-IMPORTANT"
-	Logging "       RWDC." "REMARK-MORE-IMPORTANT"
-	Logging "     * When simulating the KrbTgt account for RWDCs, the password reset is done for the TEST/BOGUS KrbTgt Accounts(s) against the RWDC with" "REMARK-MORE-IMPORTANT"
-	Logging "       the PDC Emulator FSMO followed by the 'replicate single object' operation against every available/reachable RWDC. No RODCs are involved" "REMARK-MORE-IMPORTANT"
-	Logging "       as those do not use the KrbTgt account in use by the RWDCs and also do not store/cache its password. This is a way to estimate the" "REMARK-MORE-IMPORTANT"
-	Logging "       total replication time for mode 4." "REMARK-MORE-IMPORTANT"
-	Logging "     * When simulating the KrbTgt account for RODCs, the password reset is done for the TEST/BOGUS KrbTgt Accounts(s) against the RWDC the" "REMARK-MORE-IMPORTANT"
-	Logging "       RODC is replicating from if available/reachable. If not available the password reset is against the RWDC with the PDC Emulator FSMO." "REMARK-MORE-IMPORTANT"
-	Logging "       Either way it is followed by the 'replicate single object' operation against the RODC that uses that KrbTgt account. Only the RODC" "REMARK-MORE-IMPORTANT"
-	Logging "       that uses the specific KrbTgt account is checked against to see if the change has reached it, but only if the RODC is available/reachable." "REMARK-MORE-IMPORTANT"
-	Logging "       This is a way to estimate the total replication time for mode 4." "REMARK-MORE-IMPORTANT"
-	Logging "     * If a remote DC (RWDC/RODC) is not available or cannot be reached, there will not be a check against its AD database to determine if" "REMARK-MORE-IMPORTANT"
-	Logging "       the change made reached it or not." "REMARK-MORE-IMPORTANT"
-	Logging "     * When performing the 'replicate single object' operation, it will always be for the full object if the target DC is an RWDC. If the" "REMARK-MORE-IMPORTANT"
-	Logging "       target DC is an RODC, then it will be for the partial object (secrets only)." "REMARK-MORE-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - Mode 4 is REAL RESET MODE USING PROD/REAL KRBTGT ACCOUNTS..." "REMARK-MOST-IMPORTANT"
-	Logging "     * Also executes everything from mode 1!" "REMARK-MOST-IMPORTANT"
-	Logging "     * Now it does use the PROD/REAL KrbTgt Accounts(s) for the password reset!" "REMARK-MOST-IMPORTANT"
-	Logging "       * For RWDCs it uses the PROD/REAL KrbTgt account 'krbtgt' (All RWDCs)" "REMARK-MOST-IMPORTANT"
-	Logging "       * For RODCs it uses the PROD/REAL KrbTgt account 'krbtgt_<Numeric Value>' (RODC Specific)" "REMARK-MOST-IMPORTANT"
-	Logging "     * Resets the password of the PROD/REAL KrbTgt Accounts(s) and, depending on the scope, it will check if the Password Last Set value" "REMARK-MOST-IMPORTANT"
-	Logging "       in the AD database of the remote DC(s) (RWDC/RODC) matches the Password Last Set value in the AD database of the source originating" "REMARK-MOST-IMPORTANT"
-	Logging "       RWDC." "REMARK-MOST-IMPORTANT"
-	Logging "     * When simulating the KrbTgt account for RWDCs, the password reset is done for the PROD/REAL KrbTgt Accounts(s) against the RWDC with" "REMARK-MOST-IMPORTANT"
-	Logging "       the PDC Emulator FSMO followed by the 'replicate single object' operation against every available/reachable RWDC. No RODCs are involved" "REMARK-MOST-IMPORTANT"
-	Logging "       as those do not use the KrbTgt account in use by the RWDCs and also do not store/cache its password. Once the replication is" "REMARK-MOST-IMPORTANT"
-	Logging "       complete, the total impact time will be displayed." "REMARK-MOST-IMPORTANT"
-	Logging "     * When simulating the KrbTgt account for RODCs, the password reset is done for the PROD/REAL KrbTgt Accounts(s) against the RWDC the" "REMARK-MOST-IMPORTANT"
-	Logging "       RODC is replicating from if available/reachable. If not available the password reset is against the RWDC with the PDC Emulator FSMO." "REMARK-MOST-IMPORTANT"
-	Logging "       Either way it is followed by the 'replicate single object' operation against the RODC that uses that KrbTgt account. Only the RODC" "REMARK-MOST-IMPORTANT"
-	Logging "       that uses the specific KrbTgt account is checked against to see if the change has reached it, but only if the RODC is available/reachable." "REMARK-MOST-IMPORTANT"
-	Logging "       Once the replication is complete, the total impact time will be displayed." "REMARK-MOST-IMPORTANT"
-	Logging "     * If a remote DC (RWDC/RODC) is not available or cannot be reached, there will not be a check against its AD database to determine if" "REMARK-MOST-IMPORTANT"
-	Logging "       the change made reached it or not." "REMARK-MOST-IMPORTANT"
-	Logging "     * When performing the 'replicate single object' operation, it will always be for the full object if the target DC is an RWDC. If the" "REMARK-MOST-IMPORTANT"
-	Logging "       target DC is an RODC, then it will be for the partial object (secrets only)." "REMARK-MOST-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - Mode 8 is CREATE TEST KRBTGT ACCOUNTS MODE..." "REMARK-IMPORTANT"
-	Logging "     * Creates so called TEST/BOGUS KrbTgt Account(s) to simulate the password reset with." "REMARK-IMPORTANT"
-	Logging "     * Has no impact on the PROD/REAL KrbTgt Account(s)." "REMARK-IMPORTANT"
-	Logging "     * For RWDCs it creates (in disabled state!) the TEST/BOGUS KrbTgt account 'krbtgt_TEST' and adds it to the AD group 'Denied RODC" "REMARK-IMPORTANT"
-	Logging "       Password Replication Group'." "REMARK-IMPORTANT"
-	Logging "     * For RODCs, if any in the AD domain, it creates (in disabled state!) the TEST/BOGUS KrbTgt account 'krbtgt_<Numeric Value>_TEST' and" "REMARK-IMPORTANT"
-	Logging "       adds it to the AD group 'Allowed RODC Password Replication Group'. To determine the specific KrbTgt account in use by an RODC, the" "REMARK-IMPORTANT"
-	Logging "       script reads the attribute 'msDS-KrbTgtLink' on the RODC computer account." "REMARK-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - Mode 9 is CLEANUP TEST KRBTGT ACCOUNTS MODE..." "REMARK-IMPORTANT"
-	Logging "     * Cleanup (delete) the so called TEST/BOGUS KrbTgt Account(s) that were used to simulate the password reset with." "REMARK-IMPORTANT"
-	Logging "     * For RWDCs it deletes the TEST/BOGUS KrbTgt account 'krbtgt_TEST' if it exists." "REMARK-IMPORTANT"
-	Logging "     * For RODCs, if any in the AD domain, it deletes the TEST/BOGUS KrbTgt account 'krbtgt_<Numeric Value>_TEST' if it exists. To determine" "REMARK-IMPORTANT"
-	Logging "       the specific KrbTgt account in use by an RODC, the script reads the attribute 'msDS-KrbTgtLink' on the RODC computer account." "REMARK-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - ADDITIONAL INFO - BEHAVIOR..." "REMARK-IMPORTANT"
-	Logging "     * If the operating system attribute of an RODC computer account does not have a value, it is determined to be unknown (not a real RODC)," "REMARK-IMPORTANT"
-	Logging "       and therefore something else. It could for example be a Riverbed appliance in 'RODC mode'." "REMARK-IMPORTANT"
-	Logging "     * The only DC that knows what the real replication partner is of an RODC, is the RODC itself. Only the RODC manages a connection object" "REMARK-IMPORTANT"
-	Logging "       (CO) that only exists in the AD database of the RODC and does not replicate out to other DCs as RODCs do not support outbound replication." "REMARK-IMPORTANT"
-	Logging "       Therefore, assuming the RODC is available, the CO is looked up in the RODC AD database and from that CO, the 'source' server is" "REMARK-IMPORTANT"
-	Logging "       determined. In case the RODC is not available or its 'source' server is not available, the RWDC with the PDC FSMO is used to reset" "REMARK-IMPORTANT"
-	Logging "       the password of the krbtgt account in use by that RODC. If the RODC is available a check will be done against its database, and if" "REMARK-IMPORTANT"
-	Logging "       not available the check is skipped." "REMARK-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging " - ADDITIONAL INFO - OBSERVED IMPACT..." "REMARK-IMPORTANT"
-	Logging "     * Within an AD domain, all RWDCs use the account 'krbtgt' to encrypt/sign Kerberos tickets trusted by all RWDCs" "REMARK-IMPORTANT"
-	Logging "     * Within an AD domain, every RODC uses its own 'krbtgt_<Numeric Value>' account to encrypt/sign Kerberos tickets trusted by only that RODC" "REMARK-IMPORTANT"
-	Logging "       and that account is specified in the attribute 'msDS-KrbTgtLink' on the RODC computer account." "REMARK-IMPORTANT"
-	Logging "     * RODCs are cryptographically isolated from other RODCs and the RWDCs, whether these are in the same AD site or not. Any Kerberos TGT/Service" "REMARK-IMPORTANT"
-	Logging "       tickets issued by an RODC are only valid against that RODC and any resource that has a secure channel with that RODC. That's why when an" "REMARK-IMPORTANT"
-	Logging "       RODC is compromised the scope of impact is only for that RODC and any resource using it, and not the complete AD domain." "REMARK-IMPORTANT"
-	Logging "     * Kerberos PAC validation failures: Until the new KrbTgt account password is replicated to all DCs in the domain using that KrbTgt account," "REMARK-IMPORTANT"
-	Logging "       applications which attempt KDC PAC validation may experience KDC PAC validation failures. This is possible  when a client in one AD site" "REMARK-IMPORTANT"
-	Logging "       is accessing an application leveraging the Kerberos Authentication protocol that is in a different AD site. If that application is not a" "REMARK-IMPORTANT"
-	Logging "       trusted part of the operating system, it may attempt to validate the PAC of the client's Kerberos Service Ticket against the KDC (DC) in" "REMARK-IMPORTANT"
-	Logging "       its AD site. If the DC in its site does not yet have the new KrbTgt account password, this KDC PAC validation will fail. This will likely" "REMARK-IMPORTANT"
-	Logging "       manifest itself to the client as authentication errors for that application. Once all DCs using a specific KrbTgt account have the new" "REMARK-IMPORTANT"
-	Logging "       password some affected clients may recover gracefully and resume functioning normally. If not, rebooting the affected client(s) will" "REMARK-IMPORTANT"
-	Logging "       resolve the issue. This issue may not occur if the replication of the new KrbTgt account password is timely and successful and no" "REMARK-IMPORTANT"
-	Logging "       applications attempt KDC PAC validation against an out of sync DC during that time." "REMARK-IMPORTANT"
-	Logging "     * Kerberos TGS request failures: Until the new KrbTgt account password is replicated to all DCs in the domain that use that KrbTgt account," "REMARK-IMPORTANT"
-	Logging "       a client may experience Kerberos authentication failures. This is when a client in one AD site has obtained a Kerberos Ticket Granting" "REMARK-IMPORTANT"
-	Logging "       Ticket (TGT) from an RWDC that has the new KrbTgt account password, but then subsequently attempts to obtain a Kerberos Service Ticket" "REMARK-IMPORTANT"
-	Logging "       via a TGS request against an RWDC in a different AD site. If that RWDC does not also have the new KrbTgt account password, it will not" "REMARK-IMPORTANT"
-	Logging "       be able to decrypt the client''s TGT, which will result in a TGS request failure.  This will manifest itself to the client as authenticate" "REMARK-IMPORTANT"
-	Logging "       errors. However, it should be noted that this impact is very unlikely, because it is very unlikely that a client will attempt to obtain a" "REMARK-IMPORTANT"
-	Logging "       service ticket from a different RWDC than the one from which their TGT was obtained, especially during the relatively short impact" "REMARK-IMPORTANT"
-	Logging "       duration of Mode 4." "REMARK-IMPORTANT"
-	Logging ""
-	Logging ""
-	Logging "First, read the info above, then..." "ACTION"
-	Logging "Press Any Key (TWICE!) To Continue..." "ACTION"
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	$host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown") | Out-Null
-	Logging ""
-	Logging ""
-	Logging "    >>> It is highly recommended to use the following order of execution: <<<" "REMARK-MORE-IMPORTANT"
-	Logging "     - Mode 1 - Informational Mode (No Changes At All)" "REMARK-MORE-IMPORTANT"
-	Logging "     - Mode 8 - Create TEST KrbTgt Accounts" "REMARK-MORE-IMPORTANT"
-	Logging "     - Mode 2 - Simulation Mode (Temporary Canary Object Created, No Password Reset!)" "REMARK-MORE-IMPORTANT"
-	Logging "     - Mode 3 - Simulation Mode - Use KrbTgt TEST/BOGUS Accounts (Password Will Be Reset Once!)" "REMARK-MORE-IMPORTANT"
-	Logging "     - Mode 4 - Real Reset Mode - Use KrbTgt PROD/REAL Accounts (Password Will Be Reset Once!)" "REMARK-MORE-IMPORTANT"
-	Logging "     - Mode 9 - Cleanup TEST KrbTgt Accounts (Could be skipped to reuse accounts the next time!)" "REMARK-MORE-IMPORTANT"
-	Logging ""
+If (!($Silent)) {
+	ShowHelp
 }
 
 ### Checking The Language Of The OS
@@ -1530,73 +1549,72 @@ If ($poshModuleGPO -eq "NotAvailable") {
 }
 Logging ""
 
-### Display And Selecting The Mode Of Operation
-Logging "------------------------------------------------------------------------------------------------------------------------------------------------------" "HEADER"
-Logging "SELECT THE MODE OF OPERATION..." "HEADER"
-Logging ""
-Logging "Which mode of operation do you want to execute?"
-Logging ""
-Logging " - 1 - Informational Mode (No Changes At All)"
-Logging ""
-Logging " - 2 - Simulation Mode (Temporary Canary Object Created, No Password Reset!)"
-Logging ""
-Logging " - 3 - Simulation Mode - Use KrbTgt TEST/BOGUS Accounts (Password Will Be Reset Once!)"
-Logging ""
-Logging " - 4 - Real Reset Mode - Use KrbTgt PROD/REAL Accounts (Password Will Be Reset Once!)"
-Logging ""
-Logging ""
-Logging " - 8 - Create TEST KrbTgt Accounts"
-Logging " - 9 - Cleanup TEST KrbTgt Accounts"
-Logging ""
-Logging ""
-Logging " - 0 - Exit Script"
-Logging ""
-Logging "Please specify the mode of operation: " "ACTION-NO-NEW-LINE"
-$modeOfOperationNr = Read-Host
+If ($modeOfOperationNr = 0) {
+	### Display And Selecting The Mode Of Operation
+	Logging "------------------------------------------------------------------------------------------------------------------------------------------------------" "HEADER"
+	Logging "SELECT THE MODE OF OPERATION..." "HEADER"
+	Logging ""
+	Logging "Which mode of operation do you want to execute?"
+	Logging ""
+	Logging " - 1 - Informational Mode (No Changes At All)"
+	Logging ""
+	Logging " - 2 - Simulation Mode (Temporary Canary Object Created, No Password Reset!)"
+	Logging ""
+	Logging " - 3 - Simulation Mode - Use KrbTgt TEST/BOGUS Accounts (Password Will Be Reset Once!)"
+	Logging ""
+	Logging " - 4 - Real Reset Mode - Use KrbTgt PROD/REAL Accounts (Password Will Be Reset Once!)"
+	Logging ""
+	Logging ""
+	Logging " - 8 - Create TEST KrbTgt Accounts"
+	Logging " - 9 - Cleanup TEST KrbTgt Accounts"
+	Logging ""
+	Logging ""
+	Logging " - 0 - Exit Script"
+	Logging ""
+	Logging "Please specify the mode of operation: " "ACTION-NO-NEW-LINE"
+	$modeOfOperationNr = Read-Host
+} 
 Logging ""
 
 # If Anything Else Than The Allowed/Available Non-Zero Modes, Abort The Script
-If (($modeOfOperationNr -ne 1 -And $modeOfOperationNr -ne 2 -And $modeOfOperationNr -ne 3 -And $modeOfOperationNr -ne 4 -And $modeOfOperationNr -ne 8 -And $modeOfOperationNr -ne 9) -Or $modeOfOperationNr -notmatch "^[\d\.]+$") {
-	Logging "  --> Chosen mode: Mode 0 - Exit Script..." "REMARK"
+If ($modeOfOperationNr -notmatch "^[\d\.]+$") {
+	Logging "  --> Chosen mode: Invalid - Exit Script..." "REMARK"
 	Logging ""
 	
 	EXIT
 }
 
-# If Mode 1
-If ($modeOfOperationNr -eq 1) {
-	Logging "  --> Chosen Mode: Mode 1 - Informational Mode (No Changes At All)..." "REMARK"
-	Logging ""
-}
-
-# If Mode 2
-If ($modeOfOperationNr -eq 2) {
-	Logging "  --> Chosen Mode: Mode 2 - Simulation Mode (Temporary Canary Object Created, No Password Reset!)..." "REMARK"
-	Logging ""
-}
-
-# If Mode 3
-If ($modeOfOperationNr -eq 3) {
-	Logging "  --> Chosen Mode: Mode 3 - Simulation Mode - Use KrbTgt TEST/BOGUS Accounts (Password Will Be Reset Once!)..." "REMARK"
-	Logging ""
-}
-
-# If Mode 4
-If ($modeOfOperationNr -eq 4) {
-	Logging "  --> Chosen Mode: Mode 4 - Real Reset Mode - Use KrbTgt PROD/REAL Accounts (Password Will Be Reset Once!)..." "REMARK"
-	Logging ""
-}
-
-# If Mode 8
-If ($modeOfOperationNr -eq 8) {
-	Logging "  --> Chosen Mode: Mode 8 - Create TEST KrbTgt Accounts..." "REMARK"
-	Logging ""
-}
-
-# If Mode 9
-If ($modeOfOperationNr -eq 9) {
-	Logging "  --> Chosen Mode: Mode 9 - Cleanup TEST KrbTgt Accounts..." "REMARK"
-	Logging ""
+switch ($modeOfOperationNr) {
+	1 { 
+		Logging "  --> Chosen Mode: Mode 1 - Informational Mode (No Changes At All)..." "REMARK"
+		Logging ""
+	}
+	2 {
+		Logging "  --> Chosen Mode: Mode 2 - Simulation Mode (Temporary Canary Object Created, No Password Reset!)..." "REMARK"
+		Logging ""
+	}
+	3 {
+		Logging "  --> Chosen Mode: Mode 3 - Simulation Mode - Use KrbTgt TEST/BOGUS Accounts (Password Will Be Reset Once!)..." "REMARK"
+		Logging ""
+	}
+	4 {
+		Logging "  --> Chosen Mode: Mode 4 - Real Reset Mode - Use KrbTgt PROD/REAL Accounts (Password Will Be Reset Once!)..." "REMARK"
+		Logging ""
+	}
+	8 {
+		Logging "  --> Chosen Mode: Mode 8 - Create TEST KrbTgt Accounts..." "REMARK"
+		Logging ""
+	}
+	9 {
+		Logging "  --> Chosen Mode: Mode 9 - Cleanup TEST KrbTgt Accounts..." "REMARK"
+		Logging ""
+	}
+	Default {
+		Logging "  --> Chosen mode: Mode 0 - Exit Script..." "REMARK"
+		Logging ""
+		
+		EXIT
+	}
 }
 
 ### All Modes - Selecting The Target AD Forest
@@ -1612,8 +1630,9 @@ $currentADForestOfLocalComputer = (Get-ADDomain $currentADDomainOfLocalComputer)
 
 # Ask Which AD Forest To Target
 Logging "For the AD forest to be targeted, please provide the FQDN or press [ENTER] for the current AD forest: " "ACTION-NO-NEW-LINE"
-$targetedADforestFQDN = $null
-$targetedADforestFQDN = Read-Host
+If ($targetedADforestFQDN = $null) {
+	$targetedADforestFQDN = Read-Host
+}
 
 # If No FQDN Of An AD Domain Is Specified, Then Use The AD Domain Of The Local Computer
 If ($targetedADforestFQDN -eq "" -Or $null -eq $targetedADforestFQDN) {
@@ -1690,43 +1709,45 @@ If ($adForestAccessibility -eq $true) {
 	Logging "Continuing Script..." "SUCCESS"
 	Logging "" "SUCCESS"
 } Else {
-	# If The AD Forest Is NOT Accessible, Ask For Credentials
-	Logging "" "WARNING"
-	Logging "The specified AD forest '$targetedADforestFQDN' IS NOT accessible!" "WARNING"
-	Logging "" "WARNING"
-	Logging "Custom credentials are needed..." "WARNING"
-	Logging "" "ERROR"
-	Logging "Continuing Script And Asking For Credentials..." "WARNING"
-	Logging "" "WARNING"
-	Logging ""
-	
-	# Ask For The Remote Credentials
-	Logging "Please provide an account (<DOMAIN FQDN>\<ACCOUNT>) that is a member of the 'Administrators' group in every AD domain of the specified AD forest: " "ACTION-NO-NEW-LINE"
-	$adminUserAccountRemoteForest = $null
-	$adminUserAccountRemoteForest = Read-Host
-	
-	# Ask For The Admin User Account
-	If ($adminUserAccountRemoteForest -eq "" -Or $null -eq $adminUserAccountRemoteForest) {
+	If (!($silent)){
+		# If The AD Forest Is NOT Accessible, Ask For Credentials
+		Logging "" "WARNING"
+		Logging "The specified AD forest '$targetedADforestFQDN' IS NOT accessible!" "WARNING"
+		Logging "" "WARNING"
+		Logging "Custom credentials are needed..." "WARNING"
+		Logging "" "ERROR"
+		Logging "Continuing Script And Asking For Credentials..." "WARNING"
+		Logging "" "WARNING"
 		Logging ""
+		
+		# Ask For The Remote Credentials
 		Logging "Please provide an account (<DOMAIN FQDN>\<ACCOUNT>) that is a member of the 'Administrators' group in every AD domain of the specified AD forest: " "ACTION-NO-NEW-LINE"
 		$adminUserAccountRemoteForest = $null
 		$adminUserAccountRemoteForest = Read-Host
-	}
-	
-	# Ask For The Corresponding Password
-	Logging "Please provide the corresponding password of that admin account: " "ACTION-NO-NEW-LINE"
-	$adminUserPasswordRemoteForest = $null
-	$adminUserPasswordRemoteForest = Read-Host -AsSecureString
-	If ($adminUserPasswordRemoteForest -eq "" -Or $null -eq $adminUserPasswordRemoteForest) {
-		Logging ""
+		
+		# Ask For The Admin User Account
+		If ($adminUserAccountRemoteForest -eq "" -Or $null -eq $adminUserAccountRemoteForest) {
+			Logging ""
+			Logging "Please provide an account (<DOMAIN FQDN>\<ACCOUNT>) that is a member of the 'Administrators' group in every AD domain of the specified AD forest: " "ACTION-NO-NEW-LINE"
+			$adminUserAccountRemoteForest = $null
+			$adminUserAccountRemoteForest = Read-Host
+		}
+		
+		# Ask For The Corresponding Password
 		Logging "Please provide the corresponding password of that admin account: " "ACTION-NO-NEW-LINE"
 		$adminUserPasswordRemoteForest = $null
-		[System.Security.SecureString]$adminUserPasswordRemoteForest = Read-Host -AsSecureString
+		$adminUserPasswordRemoteForest = Read-Host -AsSecureString
+		If ($adminUserPasswordRemoteForest -eq "" -Or $null -eq $adminUserPasswordRemoteForest) {
+			Logging ""
+			Logging "Please provide the corresponding password of that admin account: " "ACTION-NO-NEW-LINE"
+			$adminUserPasswordRemoteForest = $null
+			[System.Security.SecureString]$adminUserPasswordRemoteForest = Read-Host -AsSecureString
+		}
+		[string]$adminUserPasswordRemoteForest = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminUserPasswordRemoteForest))
+		$secureAdminUserPasswordRemoteForest = ConvertTo-SecureString $adminUserPasswordRemoteForest -AsPlainText -Force
+		$adminCreds = $null
+		$adminCreds = New-Object System.Management.Automation.PSCredential $adminUserAccountRemoteForest, $secureAdminUserPasswordRemoteForest
 	}
-	[string]$adminUserPasswordRemoteForest = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($adminUserPasswordRemoteForest))
-	$secureAdminUserPasswordRemoteForest = ConvertTo-SecureString $adminUserPasswordRemoteForest -AsPlainText -Force
-	$adminCreds = $null
-	$adminCreds = New-Object System.Management.Automation.PSCredential $adminUserAccountRemoteForest, $secureAdminUserPasswordRemoteForest
 	
 	# Test To See If The AD Forest Is Accessible
 	Try {
@@ -1877,18 +1898,19 @@ $listOfADDomainsInADForest | ForEach-Object{
 	$tableOfADDomainsInADForest += $tableOfADDomainsInADForestObj
 }
 
-# Display The List And Amount Of AD Domains
-Logging ""
-Logging "List Of AD Domains In AD Forest '$rootADDomainInADForest'..."
-Logging ""
-Logging "$($tableOfADDomainsInADForest | Format-Table | Out-String)"
-Logging "  --> Found [$nrOfDomainsInForest] AD Domain(s) in the AD forest '$rootADDomainInADForest'..." "REMARK"
-Logging ""
+If (!($silent)) {
+	# Display The List And Amount Of AD Domains
+	Logging ""
+	Logging "List Of AD Domains In AD Forest '$rootADDomainInADForest'..."
+	Logging ""
+	Logging "$($tableOfADDomainsInADForest | Format-Table | Out-String)"
+	Logging "  --> Found [$nrOfDomainsInForest] AD Domain(s) in the AD forest '$rootADDomainInADForest'..." "REMARK"
+	Logging ""
 
-# Ask Which AD Domain To Target From The Previously Presented List
-Logging "For the AD domain to be targeted, please provide the FQDN or press [ENTER] for the current AD domain: " "ACTION-NO-NEW-LINE"
-$targetedADdomainFQDN = $null
-$targetedADdomainFQDN = Read-Host
+	# Ask Which AD Domain To Target From The Previously Presented List
+	Logging "For the AD domain to be targeted, please provide the FQDN or press [ENTER] for the current AD domain: " "ACTION-NO-NEW-LINE"
+	$targetedADdomainFQDN = Read-Host
+}
 
 # If No FQDN Of An AD Domain Is Specified, Then Use The AD Domain Of The Local Computer
 If ($targetedADdomainFQDN -eq "" -Or $null -eq $targetedADdomainFQDN) {
@@ -2684,58 +2706,54 @@ Logging "" "REMARK"
 
 ### Mode 2 And 3 And 4 Only - Selecting The KrbTgt Account To Target And Scope If Applicable (Only Applicable To RODCs)
 If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr -eq 4) {
-	Logging "------------------------------------------------------------------------------------------------------------------------------------------------------" "HEADER"
-	Logging "SELECT THE SCOPE OF THE KRBTGT ACCOUNT(S) TO TARGET..." "HEADER"
-	Logging ""
-	Logging "Which KrbTgt account do you want to target?"
-	Logging ""
-	Logging " - 1 - Scope of KrbTgt in use by all RWDCs in the AD Domain"
-	Logging ""
-	Logging " - 2 - Scope of KrbTgt in use by specific RODC - Single RODC in the AD Domain"
-	Logging ""
-	Logging " - 3 - Scope of KrbTgt in use by specific RODC - Multiple RODCs in the AD Domain"
-	Logging ""
-	Logging " - 4 - Scope of KrbTgt in use by specific RODC - All RODCs in the AD Domain"
-	Logging ""
-	Logging ""
-	Logging " - 0 - Exit Script"
-	Logging ""
-	Logging "Please specify the scope of KrbTgt Account to target: " "ACTION-NO-NEW-LINE"
-	$targetKrbTgtAccountNr = Read-Host
+	If ($targetKrbTgtAccountNr = 0) {
+		Logging "------------------------------------------------------------------------------------------------------------------------------------------------------" "HEADER"
+		Logging "SELECT THE SCOPE OF THE KRBTGT ACCOUNT(S) TO TARGET..." "HEADER"
+		Logging ""
+		Logging "Which KrbTgt account do you want to target?"
+		Logging ""
+		Logging " - 1 - Scope of KrbTgt in use by all RWDCs in the AD Domain"
+		Logging ""
+		Logging " - 2 - Scope of KrbTgt in use by specific RODC - Single RODC in the AD Domain"
+		Logging ""
+		Logging " - 3 - Scope of KrbTgt in use by specific RODC - Multiple RODCs in the AD Domain"
+		Logging ""
+		Logging " - 4 - Scope of KrbTgt in use by specific RODC - All RODCs in the AD Domain"
+		Logging ""
+		Logging ""
+		Logging " - 0 - Exit Script"
+		Logging ""
+		Logging "Please specify the scope of KrbTgt Account to target: " "ACTION-NO-NEW-LINE"
+		$targetKrbTgtAccountNr = Read-Host
+	}
 	Logging ""
 	
 	# If Anything Else Than The Allowed/Available Non-Zero KrbTgt Accounts, Abort The Script
-	If (($targetKrbTgtAccountNr -ne 1 -And $targetKrbTgtAccountNr -ne 2 -And $targetKrbTgtAccountNr -ne 3 -And $targetKrbTgtAccountNr -ne 4) -Or $targetKrbTgtAccountNr -notmatch "^[\d\.]+$") {
-		Logging "  --> Chosen Scope KrbTgt Account Target: 0 - Exit Script..." "REMARK"
+	If ($targetKrbTgtAccountNr -notmatch "^[\d\.]+$") {
+		Logging "  --> Chosen Scope KrbTgt Account Target: Invalid - Exit Script..." "REMARK"
 		Logging ""
 		
 		EXIT
 	}
 	
-	# If KrbTgt Account Scope 1
-	If ($targetKrbTgtAccountNr -eq 1) {
-		$targetKrbTgtAccountDescription = "1 - Scope of KrbTgt in use by all RWDCs in the AD Domain..."
+	switch ($targetKrbTgtAccountNr) {
+		1 { $targetKrbTgtAccountDescription = "1 - Scope of KrbTgt in use by all RWDCs in the AD Domain..." }
+		2 { $targetKrbTgtAccountDescription = "2 - Scope of KrbTgt in use by specific RODC - Single RODC in the AD Domain..." }
+		3 { $targetKrbTgtAccountDescription = "3 - Scope of KrbTgt in use by specific RODC - Multiple RODCs in the AD Domain..." }
+		4 { $targetKrbTgtAccountDescription = "4 - Scope of KrbTgt in use by specific RODC - All RODCs in the AD Domain..." }
+		Default {
+			Logging "  --> Chosen Scope KrbTgt Account Target: 0 - Exit Script..." "REMARK"
+			Logging ""
+			
+			EXIT
+		}
 	}
-	
-	# If KrbTgt Account Scope 2
-	If ($targetKrbTgtAccountNr -eq 2) {
-		$targetKrbTgtAccountDescription = "2 - Scope of KrbTgt in use by specific RODC - Single RODC in the AD Domain..."
-	}
-	
-	# If KrbTgt Account Scope 3
-	If ($targetKrbTgtAccountNr -eq 3) {
-		$targetKrbTgtAccountDescription = "3 - Scope of KrbTgt in use by specific RODC - Multiple RODCs in the AD Domain..."
-	}
-	
-	# If KrbTgt Account Scope 4
-	If ($targetKrbTgtAccountNr -eq 4) {
-		$targetKrbTgtAccountDescription = "4 - Scope of KrbTgt in use by specific RODC - All RODCs in the AD Domain..."
-	}
+
 	Logging "  --> Chosen Scope KrbTgt Account Target: $targetKrbTgtAccountDescription" "REMARK"
 	Logging ""
 	
 	# If KrbTgt Account 2 Specify The FQDN Of A Single RODC To Target
-	If ($targetKrbTgtAccountNr -eq 2) {
+	If ($targetKrbTgtAccountNr -eq 2 -And $null -eq $targetRODCFQDNList) {
 		Logging "Specify the FQDN of single RODC for which the KrbTgt Account Password must be reset: " "ACTION-NO-NEW-LINE"
 		$targetRODCFQDNList = Read-Host
 		Logging ""
@@ -2745,7 +2763,7 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 	}
 	
 	# If KrbTgt Account 3 Specify A Comma Separated List Of FQDNs Of RODCs To Target
-	If ($targetKrbTgtAccountNr -eq 3) {
+	If ($targetKrbTgtAccountNr -eq 3 -And $null -eq $targetRODCFQDNList) {
 		Logging "Specify a comma-separated list of FQDNs of RODCs for which the KrbTgt Account Password must be reset: " "ACTION-NO-NEW-LINE"
 		$targetRODCFQDNList = Read-Host
 		$targetRODCFQDNList = $targetRODCFQDNList.Split(",")
@@ -2775,22 +2793,24 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 	}
 	
 	# Asking Confirmation To Continue Or Not
-	Logging "Do you really want to continue and execute 'Mode $modeOfOperationNr'? [CONTINUE | STOP]: " "ACTION-NO-NEW-LINE"
-	$continueOrStop = $null
-	$continueOrStop = Read-Host
-	
-	# Any Confirmation Not Equal To CONTINUE Will Be Equal To STOP
-	If ($continueOrStop.ToUpper() -ne "CONTINUE") {
-		$continueOrStop = "STOP"
+	If (!($silent)) {
+		Logging "Do you really want to continue and execute 'Mode $modeOfOperationNr'? [CONTINUE | STOP]: " "ACTION-NO-NEW-LINE"
+		$continueOrStop = $null
+		$continueOrStop = Read-Host
+		
+		# Any Confirmation Not Equal To CONTINUE Will Be Equal To STOP
+		If ($continueOrStop.ToUpper() -ne "CONTINUE") {
+			$continueOrStop = "STOP"
+		}
+		Logging ""
+		Logging "  --> Chosen: $continueOrStop" "REMARK"
+		Logging ""
+		
+		# Any Confirmation Not Equal To CONTINUE Will Abort The Script
+		If ($continueOrStop.ToUpper() -ne "CONTINUE") {
+			EXIT
+		}
 	}
-	Logging ""
-	Logging "  --> Chosen: $continueOrStop" "REMARK"
-	Logging ""
-	
-	# Any Confirmation Not Equal To CONTINUE Will Abort The Script
-	If ($continueOrStop.ToUpper() -ne "CONTINUE") {
-		EXIT
-	}	
 	
 	# KrbTgt in use by all RWDCs in the AD Domain
 	If ($targetKrbTgtAccountNr -eq 1) {
@@ -2914,7 +2934,7 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 					$metadataObjectAttribPwdLastSetVersion = $metadataObjectAttribPwdLastSet.Version
 
 					$okToReset = $null
-					If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now) {
+					If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now -Or $silent) {
 						# Allow The Password Reset To Occur Without Questions If The Expiration Date/Time Of N-1 Kerberos Tickets Is Earlier Than The Current Time
 						$okToReset = $True
 					} Else {
@@ -2950,6 +2970,7 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 						Logging "  --> Chosen: $continueOrStop" "REMARK"
 						Logging ""
 					}
+
 					If ($okToReset) {
 						# If OK To Reset Then Execute The Password Reset Of The KrbTgt Account
 						setPasswordOfADAccount $targetedADdomainSourceRWDCFQDN $krbTgtSamAccountName $localADforest $remoteCredsUsed $adminCreds
@@ -3247,7 +3268,7 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 							$metadataObjectAttribPwdLastSetVersion = $metadataObjectAttribPwdLastSet.Version
 
 							$okToReset = $null
-							If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now) {
+							If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now  -Or $silent) {
 								# Allow The Password Reset To Occur Without Questions If The Expiration Date/Time Of N-1 Kerberos Tickets Is Earlier Than The Current Time
 								$okToReset = $True
 							} Else {
@@ -3460,7 +3481,7 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 							$expirationTimeForNMinusOneKerbTickets = $null
 							$expirationTimeForNMinusOneKerbTickets = (($targetObjectToCheckPwdLastSet.AddHours($targetedADdomainMaxTgtLifetimeHrs)).AddMinutes($targetedADdomainMaxClockSkewMins)).AddMinutes($targetedADdomainMaxClockSkewMins)
 							$okToReset = $null
-							If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now) {
+							If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now  -Or $silent) {
 								# Allow The Password Reset To Occur Without Questions If The Expiration Date/Time Of N-1 Kerberos Tickets Is Earlier Than The Current Time
 								$okToReset = $True
 							} Else {
@@ -3596,23 +3617,25 @@ If ($modeOfOperationNr -eq 8) {
 	Logging "CREATE TEST KRBTGT ACCOUNTS (MODE 8)..." "HEADER"
 	Logging ""
 
-	# Asking Confirmation To Continue Or Not
-	Logging "Do you really want to continue and execute 'Mode $modeOfOperationNr'? [CONTINUE | STOP]: " "ACTION-NO-NEW-LINE"
-	$continueOrStop = $null
-	$continueOrStop = Read-Host
-	
-	# Any Confirmation Not Equal To CONTINUE Will Be Equal To STOP
-	If ($continueOrStop.ToUpper() -ne "CONTINUE") {
-		$continueOrStop = "STOP"
+	If (!($silent)) {
+		# Asking Confirmation To Continue Or Not
+		Logging "Do you really want to continue and execute 'Mode $modeOfOperationNr'? [CONTINUE | STOP]: " "ACTION-NO-NEW-LINE"
+		$continueOrStop = $null
+		$continueOrStop = Read-Host
+		
+		# Any Confirmation Not Equal To CONTINUE Will Be Equal To STOP
+		If ($continueOrStop.ToUpper() -ne "CONTINUE") {
+			$continueOrStop = "STOP"
+		}
+		Logging ""
+		Logging "  --> Chosen: $continueOrStop" "REMARK"
+		Logging ""
+		
+		# Any Confirmation Not Equal To CONTINUE Will Abort The Script
+		If ($continueOrStop.ToUpper() -ne "CONTINUE") {
+			EXIT
+		}	
 	}
-	Logging ""
-	Logging "  --> Chosen: $continueOrStop" "REMARK"
-	Logging ""
-	
-	# Any Confirmation Not Equal To CONTINUE Will Abort The Script
-	If ($continueOrStop.ToUpper() -ne "CONTINUE") {
-		EXIT
-	}	
 	
 	# Retrieve The FQDN Of The RWDC With The PDC FSMO To Create The TEST/BOGUS KrbTgt Account Objects
 	$targetedADdomainSourceRWDCFQDN = $null
@@ -3664,23 +3687,25 @@ If ($modeOfOperationNr -eq 9) {
 	Logging "CLEANUP TEST KRBTGT ACCOUNTS (MODE 9)..." "HEADER"
 	Logging ""
 
-	# Asking Confirmation To Continue Or Not
-	Logging "Do you really want to continue and execute 'Mode $modeOfOperationNr'? [CONTINUE | STOP]: " "ACTION-NO-NEW-LINE"
-	$continueOrStop = $null
-	$continueOrStop = Read-Host
-	
-	# Any Confirmation Not Equal To CONTINUE Will Be Equal To STOP
-	If ($continueOrStop.ToUpper() -ne "CONTINUE") {
-		$continueOrStop = "STOP"
+	If (!($silent)) {
+		# Asking Confirmation To Continue Or Not
+		Logging "Do you really want to continue and execute 'Mode $modeOfOperationNr'? [CONTINUE | STOP]: " "ACTION-NO-NEW-LINE"
+		$continueOrStop = $null
+		$continueOrStop = Read-Host
+		
+		# Any Confirmation Not Equal To CONTINUE Will Be Equal To STOP
+		If ($continueOrStop.ToUpper() -ne "CONTINUE") {
+			$continueOrStop = "STOP"
+		}
+		Logging ""
+		Logging "  --> Chosen: $continueOrStop" "REMARK"
+		Logging ""
+		
+		# Any Confirmation Not Equal To CONTINUE Will Abort The Script
+		If ($continueOrStop.ToUpper() -ne "CONTINUE") {
+			EXIT
+		}	
 	}
-	Logging ""
-	Logging "  --> Chosen: $continueOrStop" "REMARK"
-	Logging ""
-	
-	# Any Confirmation Not Equal To CONTINUE Will Abort The Script
-	If ($continueOrStop.ToUpper() -ne "CONTINUE") {
-		EXIT
-	}	
 	
 	# Retrieve The FQDN Of The RWDC With The PDC FSMO To Delete The TEST/BOGUS KrbTgt Account Objects
 	$targetedADdomainSourceRWDCFQDN = $null
