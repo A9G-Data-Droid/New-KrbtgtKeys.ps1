@@ -362,25 +362,25 @@ Function createTempCanaryObject($targetedADdomainRWDC, $krbTgtSamAccountName, $e
 
 ### FUNCTION: Confirm Generated Password Meets Complexity Requirements
 # Source: https://docs.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/password-must-meet-complexity-requirements
-Function confirmPasswordIsComplex($pwd) {
+Function confirmPasswordIsComplex($newPassword) {
 	Process {
 		$criteriaMet = 0
 		
 		# Upper Case Characters (A through Z, with diacritic marks, Greek and Cyrillic characters)
-		If ($pwd -cmatch '[A-Z]') {$criteriaMet++}
+		If ($newPassword -cmatch '[A-Z]') {$criteriaMet++}
 		
 		# Lower Case Characters (a through z, sharp-s, with diacritic marks, Greek and Cyrillic characters)
-		If ($pwd -cmatch '[a-z]') {$criteriaMet++}
+		If ($newPassword -cmatch '[a-z]') {$criteriaMet++}
 		
 		# Numeric Characters (0 through 9)
-		If ($pwd -match '\d') {$criteriaMet++}
+		If ($newPassword -match '\d') {$criteriaMet++}
 		
 		# Special Chracters (Non-alphanumeric characters, currency symbols such as the Euro or British Pound are not counted as special characters for this policy setting)
-		If ($pwd -match '[\^~!@#$%^&*_+=`|\\(){}\[\]:;"''<>,.?/]') {$criteriaMet++}
+		If ($newPassword -match '[\^~!@#$%^&*_+=`|\\(){}\[\]:;"''<>,.?/]') {$criteriaMet++}
 		
 		# Check If It Matches Default Windows Complexity Requirements
 		If ($criteriaMet -lt 3) {Return $false}
-		If ($pwd.Length -lt 8) {Return $false}
+		If ($newPassword.Length -lt 8) {Return $false}
 		Return $true
 	}
 }
@@ -407,10 +407,10 @@ Function generateNewComplexPassword([int]$passwordNrChars) {
                 $pwdBytes += $byte[0]
 			}
 			While ($pwdBytes.Count -lt $passwordNrChars)
-				$pwd = ([char[]]$pwdBytes) -join ''
+				$newPassword = ([char[]]$pwdBytes) -join ''
 			} 
-        Until (confirmPasswordIsComplex $pwd)
-        Return $pwd
+        Until (confirmPasswordIsComplex $newPassword)
+        Return $newPassword
 	}
 }
 
@@ -2934,9 +2934,13 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 					$metadataObjectAttribPwdLastSetVersion = $metadataObjectAttribPwdLastSet.Version
 
 					$okToReset = $null
-					If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now -Or $silent) {
+					If ($expirationTimeForNMinusOneKerbTickets -lt [DateTime]::Now) {
 						# Allow The Password Reset To Occur Without Questions If The Expiration Date/Time Of N-1 Kerberos Tickets Is Earlier Than The Current Time
 						$okToReset = $True
+					} ElseIf ($silent) {
+						# Exit gracefully if the last password change is less than the ticket lifetime when running non-interactively. 
+						$okToReset = $False
+						Logging " Password reset was cancelled because the ticket expiration has not been met."
 					} Else {
 						# Allow The Password Reset To Occur After Confirnation Only If The Expiration Date/Time Of N-1 Kerberos Tickets Is Equal Or Later Than The Current Time
 						Logging "  --> According To RWDC.....................: '$targetedADdomainSourceRWDCFQDN'"
@@ -2976,7 +2980,6 @@ If ($modeOfOperationNr -eq 2 -Or $modeOfOperationNr -eq 3 -Or $modeOfOperationNr
 						setPasswordOfADAccount $targetedADdomainSourceRWDCFQDN $krbTgtSamAccountName $localADforest $remoteCredsUsed $adminCreds
 					} Else {
 						# If Not OK To Reset Then Abort
-						
 						EXIT
 					}
 				} Else {
