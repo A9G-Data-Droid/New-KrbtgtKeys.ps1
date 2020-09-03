@@ -29,7 +29,7 @@ $ver
 	This PoSH Script Resets The KrbTgt Password For RWDCs And RODCs In A Controlled Manner
 
 .VERSION
-	v2.5, 2020-02-17 (UPDATE THE VERSION VARIABLE BELOW)
+	v2.6, 2020-08-27 (UPDATE THE VERSION VARIABLE BELOW)
 	
 .AUTHOR
 	Initial Script/Thoughts.......: Jared Poeppelman, Microsoft
@@ -103,6 +103,7 @@ $ver
 .TODO
 	- Work out the sections that contain '#XXX'
 	- Cleanup commented code as it is not used anymore - for next update to occur
+	- Document command line usage
 
 .KNOWN ISSUES/BUGS
 	- When targeting a remote AD forest for which no trust exist with the AD forest the running account belongs to, the public profile of WinRM may be
